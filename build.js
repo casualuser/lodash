@@ -28,6 +28,7 @@
   var aliasToRealMap = {
     'all': 'every',
     'any': 'some',
+    'assign': 'extend',
     'collect': 'map',
     'detect': 'find',
     'drop': 'rest',
@@ -48,6 +49,7 @@
   var realToAliasMap = {
     'contains': ['include'],
     'every': ['all'],
+    'extend': ['assign'],
     'filter': ['select'],
     'find': ['detect'],
     'first': ['head', 'take'],
@@ -70,7 +72,7 @@
     'clone': ['extend', 'forEach', 'forOwn', 'isArguments', 'isObject', 'isPlainObject'],
     'compact': [],
     'compose': [],
-    'contains': ['indexOf', 'isString', 'some'],
+    'contains': ['forEach', 'indexOf', 'isString'],
     'countBy': ['forEach'],
     'debounce': [],
     'defaults': ['isArguments'],
@@ -80,7 +82,7 @@
     'escape': [],
     'every': ['forEach', 'isArray'],
     'extend': ['isArguments'],
-    'filter': ['forEach'],
+    'filter': ['forEach', 'isArray'],
     'find': ['forEach'],
     'first': [],
     'flatten': ['isArray'],
@@ -229,6 +231,7 @@
 
   /** List of methods used by Underscore */
   var underscoreMethods = _.without.apply(_, [allMethods].concat([
+    'assign',
     'forIn',
     'forOwn',
     'isPlainObject',
@@ -615,13 +618,10 @@
     var modified,
         snippet = matchFunction(source, funcName);
 
-    // exit early if function is not found
-    if (!snippet) {
-      return source;
-    }
     // remove function
-    source = source.replace(snippet, '');
-
+    if (snippet) {
+      source = source.replace(snippet, '');
+    }
     // grab the method assignments snippet
     snippet = getMethodAssignments(source);
 
@@ -947,7 +947,8 @@
     var useUnderscoreClone = isUnderscore;
 
     // flags used to specify exposing Lo-Dash methods in an Underscore build
-    var exposeForIn = !isUnderscore,
+    var exposeAssign = !isUnderscore,
+        exposeForIn = !isUnderscore,
         exposeForOwn = !isUnderscore,
         exposeIsPlainObject = !isUnderscore;
 
@@ -969,12 +970,26 @@
           : accumulator;
       }, []);
 
+      // add method names explicitly
+      options.some(function(value) {
+        return /include/.test(value) &&
+          (result = getDependencies(optionToMethodsArray(source, value)));
+      });
+
+      // include Lo-Dash's methods if explicitly requested
+      if (isUnderscore && result) {
+        exposeAssign = result.indexOf('assign') > -1;
+        exposeForIn = result.indexOf('forIn') > -1;
+        exposeForOwn = result.indexOf('forOwn') > -1;
+        exposeIsPlainObject = result.indexOf('isPlainObject') > -1;
+        useUnderscoreClone = result.indexOf('clone') < 0;
+      }
       // update dependencies
       if (isMobile) {
         dependencyMap.reduceRight = ['forEach', 'keys'];
       }
       if (isUnderscore) {
-        dependencyMap.contains = ['indexOf', 'some'],
+        dependencyMap.contains = ['forEach', 'indexOf'],
         dependencyMap.isEqual = ['isArray', 'isFunction'];
         dependencyMap.isEmpty = ['isArray', 'isString'];
         dependencyMap.max = ['forEach', 'isArray'];
@@ -985,19 +1000,6 @@
         if (useUnderscoreClone) {
           dependencyMap.clone = ['extend', 'isArray'];
         }
-      }
-      // add method names explicitly
-      options.some(function(value) {
-        return /include/.test(value) &&
-          (result = getDependencies(optionToMethodsArray(source, value)));
-      });
-
-      // include Lo-Dash's methods if explicitly requested
-      if (result) {
-        exposeForIn = result.indexOf('forIn') > -1;
-        exposeForOwn = result.indexOf('forOwn') > -1;
-        exposeIsPlainObject = result.indexOf('isPlainObject') > -1;
-        useUnderscoreClone = result.indexOf('clone') < 0;
       }
       // add method names required by Backbone and Underscore builds
       if (isBackbone && !result) {
@@ -1075,10 +1077,16 @@
         // replace `_.contains`
         source = source.replace(/^( *)function contains[\s\S]+?\n\1}/m, [
           '  function contains(collection, target) {',
-          '    var length = collection ? collection.length : 0;',
-          "    return typeof length == 'number'",
-          '      ? indexOf(collection, target) > -1',
-          '      : some(collection, function(value) { return value === target; });',
+          '    var length = collection ? collection.length : 0,',
+          '        result = false;',
+          "    if (typeof length == 'number') {",
+          '      result = indexOf(collection, target) > -1;',
+          '    } else {',
+          '      forEach(collection, function(value) {',
+          '        return (result = value === target) && indicatorObject;',
+          '      });',
+          '    }',
+          '    return result;',
           '  }'
         ].join('\n'));
 
@@ -1097,6 +1105,24 @@
           '      }',
           '    }',
           '    return result',
+          '  }'
+        ].join('\n'));
+
+        // replace `_.extend`
+        source = source.replace(/^( *)var extend *= *createIterator[\s\S]+?\);/m, [
+          '  function extend(object) {',
+          '    if (!object) {',
+          '      return object;',
+          '    }',
+          '    for (var argsIndex = 1, argsLength = arguments.length; argsIndex < argsLength; argsIndex++) {',
+          '      var iteratee = arguments[argsIndex];',
+          '      if (iteratee) {',
+          '        for (var key in iteratee) {',
+          '          object[key] = iteratee[key];',
+          '        }',
+          '      }',
+          '    }',
+          '    return object;',
           '  }'
         ].join('\n'));
 
@@ -1283,6 +1309,9 @@
         }
       });
 
+      if (!exposeAssign) {
+        source = removeFunction(source, 'assign');
+      }
       // remove `isArguments` fallback before `isArguments` is transformed by
       // other parts of the build process
       if (isRemoved(source, 'isArguments')) {
@@ -1393,9 +1422,13 @@
             });
           });
 
-          // modify `_.every` and `_.some` to use the private `indicatorObject`
+          // modify `_.every`, `_.find`, and `_.some` to use the private `indicatorObject`
           source = source.replace(matchFunction(source, 'every'), function(match) {
             return match.replace(/\(result *= *(.+?)\);/, '!(result = $1) && indicatorObject;');
+          });
+
+          source = source.replace(matchFunction(source, 'find'), function(match) {
+            return match.replace(/return false/, 'return indicatorObject');
           });
 
           source = source.replace(matchFunction(source, 'some'), function(match) {

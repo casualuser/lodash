@@ -430,10 +430,10 @@
   /** Reusable iterator options for `defaults`, and `extend` */
   var extendIteratorOptions = {
     'useHas': false,
-    'args': 'object',
+    'args': 'object, source, guard',
     'top':
-      'for (var argsIndex = 1, argsLength = arguments.length; argsIndex < argsLength; argsIndex++) {\n' +
-      '  if (iteratee = arguments[argsIndex]) {',
+      'for (var argsIndex = 1, argsLength = typeof guard == \'number\' ? 2 : arguments.length; argsIndex < argsLength; argsIndex++) {\n' +
+      '  if ((iteratee = arguments[argsIndex])) {',
     'objectLoop': 'result[index] = value',
     'bottom': '  }\n}'
   };
@@ -987,6 +987,7 @@
    *
    * @static
    * @memberOf _
+   * @alias assign
    * @category Objects
    * @param {Object} object The destination object.
    * @param {Object} [source1, source2, ...] The source objects.
@@ -1836,18 +1837,23 @@
    */
   function contains(collection, target, fromIndex) {
     var index = -1,
-        length = collection ? collection.length : 0;
+        length = collection ? collection.length : 0,
+        result = false;
 
     fromIndex = (fromIndex < 0 ? nativeMax(0, length + fromIndex) : fromIndex) || 0;
     if (typeof length == 'number') {
-      return (isString(collection)
+      result = (isString(collection)
         ? collection.indexOf(target, fromIndex)
         : indexOf(collection, target, fromIndex)
       ) > -1;
+    } else {
+      forEach(collection, function(value) {
+        if (++index >= fromIndex) {
+          return !(result = value === target);
+        }
+      });
     }
-    return some(collection, function(value) {
-      return ++index >= fromIndex && value === target;
-    });
+    return result;
   }
 
   /**
@@ -1947,11 +1953,24 @@
   function filter(collection, callback, thisArg) {
     var result = [];
     callback = createCallback(callback, thisArg);
-    forEach(collection, function(value, index, collection) {
-      if (callback(value, index, collection)) {
-        result.push(value);
+
+    if (isArray(collection)) {
+      var index = -1,
+          length = collection.length;
+
+      while (++index < length) {
+        var value = collection[index];
+        if (callback(value, index, collection)) {
+          result.push(value);
+        }
       }
-    });
+    } else {
+      forEach(collection, function(value, index, collection) {
+        if (callback(value, index, collection)) {
+          result.push(value);
+        }
+      });
+    }
     return result;
   }
 
@@ -2419,7 +2438,7 @@
           length = collection.length;
 
       while (++index < length) {
-        if (result = callback(collection[index], index, collection)) {
+        if ((result = callback(collection[index], index, collection))) {
           break;
         }
       }
@@ -4158,6 +4177,7 @@
   // assign aliases
   lodash.all = every;
   lodash.any = some;
+  lodash.assign = extend;
   lodash.collect = map;
   lodash.detect = find;
   lodash.drop = rest;

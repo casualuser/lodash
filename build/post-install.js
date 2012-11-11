@@ -63,13 +63,12 @@
         'Accept': 'application/vnd.github.v3.raw'
       }
     }, function(response) {
-      var parser = new tar.Extract({
-        'path': options.path
-      })
-      .on('end', callback)
-      .on('error', callback);
+      var decompressor = zlib.createUnzip(),
+          parser = new tar.Extract({ 'path': options.path });
 
-      response.pipe(zlib.createUnzip()).pipe(parser);
+      decompressor.on('error', callback)
+      parser.on('end', callback).on('error', callback);
+      response.pipe(decompressor).pipe(parser);
     })
     .on('error', callback);
   }

@@ -18,6 +18,7 @@
   var aliasToRealMap = {
     'all': 'every',
     'any': 'some',
+    'assign': 'extend',
     'collect': 'map',
     'detect': 'find',
     'drop': 'rest',
@@ -38,6 +39,7 @@
   var realToAliasMap = {
     'contains': ['include'],
     'every': ['all'],
+    'extend': ['assign'],
     'filter': ['select'],
     'find': ['detect'],
     'first': ['head', 'take'],
@@ -144,6 +146,7 @@
 
   /** List of "Objects" category methods */
   var objectsMethods = [
+    'assign',
     'clone',
     'defaults',
     'extend',
@@ -239,6 +242,7 @@
 
   /** List of methods used by Underscore */
   var underscoreMethods = _.without.apply(_, [allMethods].concat([
+    'assign',
     'forIn',
     'forOwn',
     'isPlainObject',
@@ -474,7 +478,8 @@
 
         var data = {
           'a': { 'people': ['moe', 'larry', 'curly'] },
-          'b': { 'epithet': 'stooge' }
+          'b': { 'epithet': 'stooge' },
+          'c': { 'name': 'ES6' }
         };
 
         context._ = _;
@@ -483,6 +488,7 @@
 
         equal(templates.a(data.a).replace(/[\r\n]+/g, ''), '<ul><li>moe</li><li>larry</li><li>curly</li></ul>', basename);
         equal(templates.b(data.b), 'Hello stooge.', basename);
+        equal(templates.c(data.c), 'Hello ES6!', basename);
         delete _.templates;
         start();
       });
@@ -524,14 +530,14 @@
             context = createContext();
 
         var data = {
-          'c': { 'name': 'Mustache' }
+          'd': { 'name': 'Mustache' }
         };
 
         context._ = _;
         vm.runInContext(source, context);
         var templates = context._.templates;
 
-        equal(templates.c(data.c), 'Hello Mustache!', basename);
+        equal(templates.d(data.d), 'Hello Mustache!', basename);
         start();
       });
     });
@@ -642,10 +648,17 @@
         equal(object.fn(), 2, '_.bind: ' + basename);
 
         ok(lodash.clone(array, true)[0] === array[0], '_.clone should be shallow: ' + basename);
+        equal(lodash.contains({ 'a': 1, 'b': 2 }, 1), true, '_.contains should work with objects: ' + basename);
         equal(lodash.contains([1, 2, 3], 1, 2), true, '_.contains should ignore `fromIndex`: ' + basename);
         equal(lodash.every([true, false, true]), false, '_.every: ' + basename);
 
-        var actual = lodash.forEach(array, function(value) {
+        actual = lodash.find(array, function(value) {
+          return 'value' in value;
+        });
+
+        equal(actual, array[0], '_.find: ' + basename);
+
+        actual = lodash.forEach(array, function(value) {
           last = value;
           return false;
         });
@@ -685,6 +698,7 @@
         var lodash = context._;
 
         _.each([
+          'assign',
           'forIn',
           'forOwn',
           'isPlainObject',
@@ -692,7 +706,7 @@
           'merge',
           'partial'
         ], function(methodName) {
-          equal(lodash[methodName], undefined, '_.' + methodName + ' exists: ' + basename);
+          equal(lodash[methodName], undefined, '_.' + methodName + ' should not exist: ' + basename);
         });
 
         start();
@@ -984,7 +998,9 @@
         build(['--silent'].concat(command.split(' ')), function(source, filePath) {
           var methodNames,
               basename = path.basename(filePath, '.js'),
-              context = createContext();
+              context = createContext(),
+              isUnderscore = /underscore/.test(command),
+              exposeAssign = !isUnderscore;
 
           try {
             vm.runInContext(source, context);
@@ -999,8 +1015,12 @@
           if (/backbone/.test(command) && !methodNames) {
             methodNames = backboneDependencies.slice();
           }
-          if (/underscore/.test(command) && !methodNames) {
-            methodNames = underscoreMethods.slice();
+          if (isUnderscore) {
+            if (methodNames) {
+              exposeAssign = methodNames.indexOf('assign') > -1;
+            } else {
+              methodNames = underscoreMethods.slice();
+            }
           }
           // add method names explicitly by category
           if (/category/.test(command)) {
@@ -1034,6 +1054,9 @@
           // remove nonexistent and duplicate method names
           methodNames = _.uniq(_.intersection(allMethods, expandMethodNames(methodNames)));
 
+          if (!exposeAssign) {
+            methodNames = _.without(methodNames, 'assign');
+          }
           var lodash = context._ || {};
           methodNames.forEach(function(methodName) {
             testMethod(lodash, methodName, basename);
