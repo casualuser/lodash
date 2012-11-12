@@ -18,11 +18,11 @@
   var aliasToRealMap = {
     'all': 'every',
     'any': 'some',
-    'assign': 'extend',
     'collect': 'map',
     'detect': 'find',
     'drop': 'rest',
     'each': 'forEach',
+    'extend': 'assign',
     'foldl': 'reduce',
     'foldr': 'reduceRight',
     'head': 'first',
@@ -37,9 +37,9 @@
 
   /** Used to associate real names with their aliases */
   var realToAliasMap = {
+    'assign': ['extend'],
     'contains': ['include'],
     'every': ['all'],
-    'extend': ['assign'],
     'filter': ['select'],
     'find': ['detect'],
     'first': ['head', 'take'],
@@ -242,7 +242,6 @@
 
   /** List of methods used by Underscore */
   var underscoreMethods = _.without.apply(_, [allMethods].concat([
-    'assign',
     'forIn',
     'forOwn',
     'isPlainObject',
@@ -651,6 +650,12 @@
         equal(lodash.contains({ 'a': 1, 'b': 2 }, 1), true, '_.contains should work with objects: ' + basename);
         equal(lodash.contains([1, 2, 3], 1, 2), true, '_.contains should ignore `fromIndex`: ' + basename);
         equal(lodash.every([true, false, true]), false, '_.every: ' + basename);
+
+        function Foo() {}
+        Foo.prototype = { 'a': 1 };
+
+        deepEqual(lodash.defaults({}, new Foo), Foo.prototype, '_.defaults should assign inherited `source` properties: ' + basename);
+        deepEqual(lodash.extend({}, new Foo), Foo.prototype, '_.extend should assign inherited `source` properties: ' + basename);
 
         actual = lodash.find(array, function(value) {
           return 'value' in value;
